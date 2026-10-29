@@ -1,0 +1,14 @@
+#!/bin/sh
+set -eu
+
+SOURCE=$0
+while [ -L "$SOURCE" ]; do
+    SOURCE_DIR=$(CDPATH= cd -- "$(dirname -- "$SOURCE")" && pwd)
+    SOURCE=$(readlink "$SOURCE")
+    case "$SOURCE" in
+        /*) ;;
+        *) SOURCE="$SOURCE_DIR/$SOURCE" ;;
+    esac
+done
+ROOT_DIR=$(CDPATH= cd -- "$(dirname -- "$SOURCE")" && pwd)
+exec python3 "$ROOT_DIR/mac/dshield.py" "$@"

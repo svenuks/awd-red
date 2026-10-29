@@ -1,0 +1,515 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AWD-Red 自动化调度平台 V1.0</title>
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+    <div class="app-container">
+        <!-- 顶部导航栏 -->
+        <header class="header">
+            <div class="logo-area">
+                <div class="logo-icon">⚔️</div>
+                <div>
+                    <h1>AWD-Red 自动化调度平台</h1>
+                    <div class="subtitle">AI 漏洞研究与自动化执行解耦引擎 · V1.0</div>
+                </div>
+            </div>
+            
+            <div class="system-controls">
+                <div class="status-indicator">
+                    <span id="connDot" class="dot live"></span>
+                    <span id="connText">系统在线</span>
+                </div>
+                <button id="btnToggleScheduler" class="btn btn-outline" onclick="toggleScheduler()">
+                    <span>⏳ 调度器: <strong id="schedState">...</strong></span>
+                </button>
+                <button id="btnToggleWatcher" class="btn btn-outline" onclick="toggleWatcher()">
+                    <span>📂 热加载: <strong id="watchState">...</strong></span>
+                </button>
+                <button id="btnToggleAutoTrigger" class="btn btn-outline" onclick="toggleAutoTrigger()" title="首次检测到新增 PoC 时立即自动执行一轮打击">
+                    <span>⚡ 新PoC自打: <strong id="autoTriggerState">开启</strong></span>
+                </button>
+                <button class="btn btn-primary" onclick="triggerRunRound()">
+                    <span>⚡ 立即跑一轮</span>
+                </button>
+            </div>
+        </header>
+
+        <!-- 比赛状态与倒计时横幅 -->
+        <section class="round-banner">
+            <div class="banner-card round-highlight">
+                <div class="banner-label">当前轮次</div>
+                <div class="banner-value" id="currentRound">ROUND 1</div>
+                <div class="banner-meta" id="roundStatusText">计算中...</div>
+            </div>
+
+            <div class="banner-card countdown-highlight">
+                <div class="banner-label">距离下轮倒计时</div>
+                <div class="banner-value font-mono" id="countdownTimer">--:--</div>
+                <div class="banner-meta">轮次周期: <span id="roundDurationText">600s</span></div>
+            </div>
+
+            <div class="banner-card">
+                <div class="banner-label">活跃 PoC</div>
+                <div class="banner-value text-cyan" id="statReadyPocs">0</div>
+                <div class="banner-meta">已注册总量: <span id="statTotalPocs">0</span></div>
+            </div>
+
+            <div class="banner-card">
+                <div class="banner-label">目标靶机</div>
+                <div class="banner-value text-blue" id="statTargets">0</div>
+                <div class="banner-meta">IPv4 节点</div>
+            </div>
+
+            <div class="banner-card">
+                <div class="banner-label">已知漏洞库</div>
+                <div class="banner-value text-yellow" id="statTotalVulns">0</div>
+                <div class="banner-meta">已探活存活: <span id="statVerifiedVulns" class="text-green font-bold">0</span></div>
+            </div>
+
+            <div class="banner-card">
+                <div class="banner-label">捕获 Flag (已去重)</div>
+                <div class="banner-value text-green" id="statTotalFlags">0</div>
+                <div class="banner-meta">提交成功: <span id="statSubmittedSuccess" class="text-green font-bold">0</span></div>
+            </div>
+        </section>
+
+        <!-- 主操作导航标签页 -->
+        <nav class="nav-tabs">
+            <button class="tab-btn active" onclick="switchTab('dashboard')">📊 实时大盘与 Flag</button>
+            <button class="tab-btn" onclick="switchTab('dispatch')">⚡ 轮训调度与运行日志</button>
+            <button class="tab-btn" onclick="switchTab('vulns')">🔍 漏洞库中心 (<span id="tabVulnCount">0</span>)</button>
+            <button class="tab-btn" onclick="switchTab('pocs')">🧩 PoC 管理中心</button>
+            <button class="tab-btn" onclick="switchTab('import')">🪄 智能配置与靶机导入</button>
+            <button class="tab-btn" onclick="switchTab('logs')">📋 平台系统日志</button>
+        </nav>
+
+        <!-- TAB 1: 实时大盘与 Flag -->
+        <main id="tab-dashboard" class="tab-pane active">
+            <div class="dashboard-grid">
+                <!-- 左列: 最新捕获 Flag -->
+                <div class="card">
+                    <div class="card-header">
+                        <h2>🚩 捕获 Flag 实时流 (哈希全局去重)</h2>
+                        <div style="display: flex; gap: 8px;">
+                            <button class="btn btn-sm btn-outline" onclick="resubmitAllFlags()">🚀 批量重提未成功</button>
+                            <button class="btn btn-sm btn-outline text-red" onclick="clearAllFlags()">🗑️ 清空 Flag</button>
+                            <button class="btn btn-sm btn-ghost" onclick="fetchFlags()">🔄 刷新</button>
+                        </div>
+                    </div>
+                    <div class="card-body scrollable">
+                        <table class="data-table">
+                            <thead>
+                                <tr>
+                                    <th>Flag</th>
+                                    <th>轮次</th>
+                                    <th>来源靶机</th>
+                                    <th>来源 PoC</th>
+                                    <th>提交状态</th>
+                                    <th>提交返回回显</th>
+                                    <th>捕获时间</th>
+                                    <th>操作</th>
+                                </tr>
+                            </thead>
+                            <tbody id="flagsTableBody">
+                                <tr><td colspan="8" class="text-center text-muted">暂无数据</td></tr>
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+
+                <!-- 右列: 最新任务事件 -->
+                <div class="card">
+                    <div class="card-header">
+                        <h2>⚡ 最新任务调度流</h2>
+                        <button class="btn btn-sm btn-ghost" onclick="fetchTasks()">刷新</button>
+                    </div>
+                    <div class="card-body scrollable">
+                        <table class="data-table">
+                            <thead>
+                                <tr>
+                                    <th>状态</th>
+                                    <th>目标靶机</th>
+                                    <th>PoC</th>
+                                    <th>耗时</th>
+                                    <th>输出摘要</th>
+                                </tr>
+                            </thead>
+                            <tbody id="tasksTableBody">
+                                <tr><td colspan="5" class="text-center text-muted">暂无数据</td></tr>
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+        </main>
+
+        <!-- TAB 2: 轮训调度与运行日志 (独立选项卡) -->
+        <main id="tab-dispatch" class="tab-pane">
+            <!-- 自动轮训调度看板 -->
+            <section class="dispatch-control-panel">
+                <div class="dispatch-panel-header">
+                    <div class="dispatch-title-wrap">
+                        <span class="dispatch-title">⏱️ 自动轮训调度看板</span>
+                        <span id="schedModeBadge" class="badge-mode">⏱️ 10分钟自动间隔循环</span>
+                        <span id="schedExecBadge" class="badge-status status-idle">💤 空闲等待下轮</span>
+                        <span id="schedWorkerBadge" class="badge-workers font-mono">并发任务: 0 / 128</span>
+                    </div>
+                    <div class="dispatch-actions">
+                        <button id="btnStartIntervalLoop" class="btn btn-success" onclick="startIntervalScheduler()">
+                            <span>▶️ 启动 10 分钟自动轮训</span>
+                        </button>
+                        <button id="btnSchedPauseToggle" class="btn btn-outline" onclick="toggleScheduler()">
+                            <span>⏸️ 暂停调度</span>
+                        </button>
+                        <button class="btn btn-primary" onclick="triggerRunRound()">
+                            <span>⚡ 立即跑一轮</span>
+                        </button>
+                        <button id="btnSwitchSchedMode" class="btn btn-ghost" onclick="toggleScheduleMode()">
+                            <span>🔄 切换定时模式</span>
+                        </button>
+                    </div>
+                </div>
+
+                <div class="progress-container">
+                    <div class="progress-bar-wrap">
+                        <div id="roundProgressBar" class="progress-bar-fill" style="width: 0%"></div>
+                    </div>
+                    <div class="progress-meta font-mono">
+                        <span>当前轮次进度: <strong id="roundElapsedText">00:00</strong> / <strong id="roundTotalText">10:00</strong> (<span id="roundPercentText">0%</span>)</span>
+                        <span id="roundCycleHint">本轮调度状态: 正常轮训中</span>
+                    </div>
+                </div>
+            </section>
+
+            <!-- 轮次执行全过程实时日志终端 -->
+            <div class="card mt-3">
+                <div class="card-header" style="flex-wrap: wrap; gap: 10px;">
+                    <div style="display: flex; align-items: center; gap: 8px;">
+                        <h2>🖥️ 轮次执行全过程实时日志流 (Live Execution Console)</h2>
+                        <span id="terminalDot" class="dot live"></span>
+                        <span id="terminalStatus" class="text-muted" style="font-size: 11px;">实时轮询中</span>
+                    </div>
+                    <div class="terminal-toolbar">
+                        <div class="btn-group">
+                            <button class="btn btn-sm btn-outline active" id="btnFilterAll" onclick="setLogFilter('all')">全部日志</button>
+                            <button class="btn btn-sm btn-outline" id="btnFilterHits" onclick="setLogFilter('hits')">🎯 仅看命中与Flag</button>
+                            <button class="btn btn-sm btn-outline" id="btnFilterWarn" onclick="setLogFilter('warn')">⚠️ 仅超时与异常</button>
+                        </div>
+                        <button class="btn btn-sm btn-outline" id="btnLogOrder" onclick="toggleLogOrder()">
+                            <span>🔃 排序: <strong id="logOrderState">倒序(最新在上)</strong></span>
+                        </button>
+                        <button class="btn btn-sm btn-outline" id="btnAutoScroll" onclick="toggleAutoScroll()">
+                            <span>📌 自动滚屏: <strong id="autoScrollState">开</strong></span>
+                        </button>
+                        <button class="btn btn-sm btn-outline" onclick="fetchExecutionLogs()">🔄 刷新日志</button>
+                        <button class="btn btn-sm btn-ghost" onclick="clearTerminal()">🧹 清屏</button>
+                    </div>
+                </div>
+                <div class="card-body" style="padding: 0;">
+                    <div id="executionTerminal" class="execution-terminal">
+                        <div class="terminal-empty text-muted text-center" style="padding: 40px;">
+                            等待任务触发... 点击【⚡ 立即跑一轮】或等待自动轮训，将在此全景输出每一步并发执行与Flag捕获日志。
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </main>
+
+        <!-- TAB: 漏洞库中心 -->
+        <main id="tab-vulns" class="tab-pane">
+            <div class="card">
+                <div class="card-header">
+                    <div>
+                        <h2>🔍 比赛漏洞库中心 (Vulnerability Hub)</h2>
+                        <p class="section-desc">由 <code>awd-vulscan</code> (源码审计 + 存活探活) 或 AI 漏洞研究员自动写入的已知暗桩与利用点，支持快速复制利用。</p>
+                    </div>
+                    <div class="btn-group">
+                        <button class="btn btn-outline btn-sm text-red" onclick="clearVulns()">清空漏洞库</button>
+                        <button class="btn btn-primary btn-sm" onclick="fetchVulns()">刷新漏洞库</button>
+                    </div>
+                </div>
+                <div class="card-body">
+                    <table class="data-table">
+                        <thead>
+                            <tr>
+                                <th>探活状态</th>
+                                <th>等级</th>
+                                <th>漏洞类型</th>
+                                <th>受影响文件与位置</th>
+                                <th>触发参数</th>
+                                <th>PoC 提示 / 利用载荷</th>
+                                <th>发现时间</th>
+                                <th>操作</th>
+                            </tr>
+                        </thead>
+                        <tbody id="vulnsTableBody">
+                            <tr><td colspan="8" class="text-center text-muted">加载中...</td></tr>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </main>
+
+        <!-- TAB 2: PoC 管理中心 -->
+        <main id="tab-pocs" class="tab-pane">
+            <div class="card">
+                <div class="card-header">
+                    <div>
+                        <h2>🧩 PoC 仓库管理与热加载</h2>
+                        <p class="section-desc">AI Agent 交付文件放入 <code>pocs/incoming/</code> 自动通过语法校验并提升至生效列表，修改自下一轮生效。</p>
+                    </div>
+                    <div style="display: flex; gap: 8px;">
+                        <button class="btn btn-outline text-red" onclick="clearAllPocs()">🗑️ 清空所有 PoC</button>
+                        <button class="btn btn-primary" onclick="syncPocs()">🔄 立即扫描目录</button>
+                    </div>
+                </div>
+                <div class="card-body">
+                    <table class="data-table">
+                        <thead>
+                            <tr>
+                                <th>状态</th>
+                                <th>PoC 名称</th>
+                                <th>调用 / 成功 / 命中</th>
+                                <th>版本</th>
+                                <th>文件名</th>
+                                <th>SHA256 哈希</th>
+                                <th>更新时间</th>
+                                <th>启停操作</th>
+                            </tr>
+                        </thead>
+                        <tbody id="pocsTableBody">
+                            <tr><td colspan="8" class="text-center text-muted">加载中...</td></tr>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </main>
+
+        <!-- TAB 3: 智能配置与靶机导入 -->
+        <main id="tab-import" class="tab-pane">
+            <div class="grid-2">
+                <!-- 智能提取 -->
+                <div class="card">
+                    <div class="card-header">
+                        <h2>🪄 比赛公告智能识别导入</h2>
+                    </div>
+                    <div class="card-body">
+                        <p class="section-desc">直接将比赛组委会提供的赛事说明文本粘贴在此，系统将自动识别并结构化提取 IPv4 目标（支持 <code>192.168.1.1-255</code> 及网段）、提交接口与 Token：</p>
+                        <textarea id="rawNoticeInput" class="code-editor" placeholder="例如：
+靶机列表：
+192.168.1.1-255
+192.168.1.101
+提交接口：http://10.0.0.1/api/flag
+认证Token: Bearer team123_token"></textarea>
+                        
+                        <div class="btn-group mt-3">
+                            <button class="btn btn-primary" onclick="smartParseText()">🔍 智能识别解析</button>
+                            <button class="btn btn-success" id="btnApplyParsed" onclick="applyParsedConfig()" style="display:none">💾 确认并一键应用到平台</button>
+                        </div>
+
+                        <div id="parsePreviewBox" class="preview-box mt-3" style="display:none">
+                            <h3>解析预览：</h3>
+                            <pre id="parsePreviewContent"></pre>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- 手动配置 -->
+                <div class="card">
+                    <div class="card-header">
+                        <h2>⚙️ 平台运行参数</h2>
+                    </div>
+                    <div class="card-body">
+                        <div class="form-group">
+                            <label>比赛开始时间 (YYYY-MM-DD HH:MM:SS):</label>
+                            <input type="text" id="cfgStartTime" class="form-input">
+                        </div>
+                        <div class="form-group">
+                            <label>轮次时长 (秒):</label>
+                            <input type="number" id="cfgDuration" class="form-input" value="600">
+                        </div>
+                        <div class="form-group">
+                            <label>单 PoC 并发上限 (靶机总量):</label>
+                            <input type="number" id="cfgPocConcurrency" class="form-input" value="64">
+                        </div>
+                        <div class="form-group">
+                            <label>单目标超时时间 (秒):</label>
+                            <input type="number" id="cfgTimeout" step="0.5" class="form-input" value="3.0">
+                        </div>
+                        <div class="form-group">
+                            <label>Flag 正则匹配表达式:</label>
+                            <input type="text" id="cfgFlagPattern" class="form-input" value="flag\{[a-zA-Z0-9_\-]+\}">
+                        </div>
+                        <div class="form-group">
+                            <label>获取 Flag 命令 (支持 curl / 自定义拉取):</label>
+                            <div style="display: flex; gap: 8px;">
+                                <input type="text" id="cfgGetFlagCmd" class="form-input font-mono" placeholder="curl -s http://10.0.0.1/get_flag 或 cat /flag">
+                                <button type="button" class="btn btn-outline" style="white-space: nowrap;" onclick="testRunGetFlagCmd()">⚡ 测试运行</button>
+                            </div>
+                        </div>
+                        <div id="getFlagResultBox" class="preview-box mt-2" style="display: none;">
+                            <div style="display: flex; justify-content: space-between; margin-bottom: 4px;">
+                                <span class="text-cyan font-bold" style="font-size: 11px;">获取结果回显：</span>
+                                <span id="getFlagStatusBadge" class="badge badge-ready">OK</span>
+                            </div>
+                            <pre id="getFlagResultContent" style="max-height: 120px; overflow-y: auto;"></pre>
+                        </div>
+                        <button class="btn btn-primary" onclick="saveSettings()">保存基础参数</button>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Flag 自动提交器配置 -->
+            <div class="card mt-4">
+                <div class="card-header">
+                    <div>
+                        <h2>🚀 官方比赛 Flag 自动提交器 (Submitter)</h2>
+                        <p class="section-desc">捕获到新 Flag 时自动向比赛裁判平台发送 HTTP 请求提交，支持自定义请求头（Bearer Token 等）、请求体模板与成功判定关键字。</p>
+                    </div>
+                    <div style="display: flex; gap: 8px; align-items: center;">
+                        <span id="submitterStatusBadge" class="badge badge-ready">🟢 自动提交已开启</span>
+                    </div>
+                </div>
+                <div class="card-body">
+                    <!-- ⚡ 智能请求包全量导入区 (免拆解免填配置) -->
+                    <div class="mb-3" style="background: rgba(15, 23, 42, 0.7); border: 1px dashed #38bdf8; border-radius: 8px; padding: 14px;">
+                        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
+                            <label style="font-weight: 600; color: #38bdf8; font-size: 13px; display: flex; align-items: center; gap: 6px;">
+                                ⚡ 智能请求包一键导入 (粘贴 PowerShell / cURL / 原始 HTTP 免手动分项配置)
+                            </label>
+                            <div style="display: flex; gap: 8px;">
+                                <button class="btn btn-sm btn-primary" onclick="importRawSubmitterPackage()">⚡ 一键自动提取并应用</button>
+                                <button class="btn btn-sm btn-ghost" onclick="clearRawSubmitterPackage()">清空</button>
+                            </div>
+                        </div>
+                        <textarea id="subRawPackage" class="code-editor font-mono" style="height: 95px; font-size: 11px; line-height: 1.4;" placeholder="在此直接粘贴从浏览器开发者工具或抓包软件复制的 PowerShell (Invoke-WebRequest)、cURL 或原始 HTTP 请求包，系统将自动提取 URL、Token、全量 Headers 与 Body 模板，并自动注入 {raw_flag} 宏，免去手动分项填写的繁琐步骤！"></textarea>
+                        <div id="subRawImportAlert" style="display: none; margin-top: 8px; font-size: 12px; padding: 6px 12px; border-radius: 4px;"></div>
+                    </div>
+
+                    <div class="form-grid">
+                        <div class="form-group">
+                            <label style="display: flex; align-items: center; gap: 8px; cursor: pointer;">
+                                <input type="checkbox" id="subEnabled" style="width: 16px; height: 16px;">
+                                <strong style="color: #38bdf8;">启用自动提交 Flag</strong>
+                            </label>
+                        </div>
+                        <div class="form-group">
+                            <label>提交接口 URL:</label>
+                            <input type="text" id="subUrl" class="form-input font-mono" placeholder="https://cloud.dasctf.com/slab-match/api/v1/player/answer-panel/answer">
+                        </div>
+                        <div class="form-group">
+                            <label>请求方式 (Method):</label>
+                            <select id="subMethod" class="form-input">
+                                <option value="POST">POST</option>
+                                <option value="GET">GET</option>
+                            </select>
+                        </div>
+                        <div class="form-group">
+                            <label>成功判定正则 (Success Regex):</label>
+                            <input type="text" id="subSuccessKeyword" class="form-input font-mono" placeholder="&quot;code&quot;:\s*(?:&quot;200&quot;|200|&quot;0&quot;|0)|&quot;成功&quot;|success">
+                        </div>
+                    </div>
+
+                    <div class="form-group mt-2">
+                        <label>自定义请求头 (Headers JSON, 支持 Authorization / matchid / Referer 等):</label>
+                        <textarea id="subHeaders" class="code-editor" style="height: 120px;" placeholder='{"Content-Type": "application/json", "Authorization": "Bearer ...", "matchid": "2146"}'></textarea>
+                    </div>
+
+                    <div class="form-group mt-2">
+                        <label>请求体模板 (Body Template, 支持 <code>{flag}</code> 或 <code>{raw_flag}</code> 宏替换):</label>
+                        <textarea id="subBodyTemplate" class="code-editor" style="height: 70px;" placeholder='{"matchId":"2146","exerciseId":23653,"flag":"{flag}"}'></textarea>
+                    </div>
+
+                    <div style="display: flex; gap: 10px; margin-top: 12px; flex-wrap: wrap; align-items: center;">
+                        <button class="btn btn-primary" onclick="saveSubmitterConfig()">💾 保存提交器配置</button>
+                        <button class="btn btn-outline" onclick="testSubmitter()">🧪 发送测试 Flag 验证</button>
+                        <button class="btn btn-outline" onclick="resubmitAllFlags()">🚀 批量重试未成功 Flag</button>
+                    </div>
+
+                    <div id="subTestResultBox" class="preview-box mt-3" style="display: none;">
+                        <div style="display: flex; justify-content: space-between; margin-bottom: 4px;">
+                            <span class="text-cyan font-bold" style="font-size: 11px;">提交测试回显结果：</span>
+                            <span id="subTestStatusBadge" class="badge badge-ready">OK</span>
+                        </div>
+                        <pre id="subTestResultContent" style="max-height: 120px; overflow-y: auto;"></pre>
+                    </div>
+                </div>
+            </div>
+
+            <!-- 目标列表编辑与生成 -->
+            <div class="card mt-4">
+                <div class="card-header">
+                    <div>
+                        <h2>🎯 目标 IPv4 列表 (targets.txt)</h2>
+                        <p class="section-desc">支持单 IP、范围简写（如 <code>192.168.1.1-255</code>）及 CIDR 网段（如 <code>192.168.1.0/24</code>），系统自动展开生成真实靶机 IP 资产列表。</p>
+                    </div>
+                    <div style="display: flex; gap: 8px; align-items: center;">
+                        <span id="targetsCountBadge" class="badge badge-ready">已生成: 0 台目标</span>
+                        <button class="btn btn-sm btn-outline text-red" onclick="clearAllTargets()">🗑️ 清空目标列表</button>
+                        <button class="btn btn-sm btn-ghost" onclick="fetchTargetsData()">🔄 刷新</button>
+                    </div>
+                </div>
+                <div class="card-body">
+                    <!-- 输入规则与操作 -->
+                    <div class="form-group mb-2">
+                        <label style="font-weight: 600; color: #cbd5e1; font-size: 13px;">📝 目标配置规则 / 输入源 (每行一个，支持单IP、网段范围、CIDR):</label>
+                        <textarea id="targetsListInput" class="code-editor" style="height: 100px;" placeholder="例如:&#10;192.168.1.1-255&#10;192.168.1.0/24&#10;172.16.0.10"></textarea>
+                    </div>
+                    <div style="display: flex; gap: 10px; flex-wrap: wrap; align-items: center;">
+                        <button class="btn btn-primary" onclick="saveTargets()">💾 保存并生成目标</button>
+                        <button class="btn btn-outline" onclick="expandTargetsToInput()">⚡ 展开为完整 IP 列表</button>
+                        <button class="btn btn-outline text-red" onclick="clearAllTargets()">🗑️ 清空列表</button>
+                    </div>
+
+                    <!-- 已生成的 IPv4 目标展示区 -->
+                    <div class="targets-display-section">
+                        <div class="targets-toolbar">
+                            <div style="display: flex; align-items: center; gap: 8px;">
+                                <strong style="font-size: 14px; color: #e2e8f0;">📋 已生成的目标靶机列表</strong>
+                                <span id="generatedTargetCount" class="badge badge-mode">共 0 台</span>
+                            </div>
+                            <div style="display: flex; align-items: center; gap: 8px;">
+                                <input type="text" id="targetSearchInput" class="form-input" style="width: 200px; padding: 4px 8px; font-size: 12px;" placeholder="🔍 筛选 IP (如 192.168.1.5)..." oninput="renderFilteredTargets()">
+                                <button class="btn btn-sm btn-outline" onclick="copyAllGeneratedTargets()">📋 复制全部 IP</button>
+                                <button class="btn btn-sm btn-ghost" id="btnToggleTargetView" onclick="toggleTargetViewMode()">切换为文本视图</button>
+                            </div>
+                        </div>
+
+                        <!-- 网格视图 -->
+                        <div id="targetsTagGrid" class="targets-tag-grid">
+                            <div class="text-muted text-center" style="grid-column: 1 / -1; padding: 20px;">暂无生成的目标靶机，请在上方输入规则后点击保存并生成目标</div>
+                        </div>
+
+                        <!-- 文本视图 (默认隐藏) -->
+                        <textarea id="targetsExpandedText" class="code-editor" style="height: 200px; display: none; margin-top: 8px;" readonly placeholder="生成的全部 IP 列表"></textarea>
+                    </div>
+                </div>
+            </div>
+        </main>
+
+        <!-- TAB 4: 平台日志 -->
+        <main id="tab-logs" class="tab-pane">
+            <div class="card">
+                <div class="card-header">
+                    <h2>📋 平台实时运行日志</h2>
+                    <div style="display: flex; gap: 8px;">
+                        <button class="btn btn-sm btn-outline" id="btnSysLogOrder" onclick="toggleSysLogOrder()">
+                            <span>🔃 排序: <strong id="sysLogOrderState">倒序(最新在上)</strong></span>
+                        </button>
+                        <button class="btn btn-sm btn-ghost" onclick="fetchLogs()">清空并拉取</button>
+                    </div>
+                </div>
+                <div class="card-body">
+                    <pre id="logConsole" class="log-viewer"></pre>
+                </div>
+            </div>
+        </main>
+    </div>
+
+    <script src="app.js?v=20261023_01"></script>
+</body>
+</html>

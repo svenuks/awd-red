@@ -1,0 +1,15 @@
+{
+  "competition_start_time": "2026-10-30 09:00:00",
+  "round_duration_sec": 600,
+  "poc_concurrency": 64,
+  "global_concurrency": 128,
+  "task_timeout_sec": 3,
+  "scheduler_enabled": true,
+  "watcher_enabled": true,
+  "auto_trigger_on_new_poc": true,
+  "flag_pattern": "flag\\{[a-zA-Z0-9_\\-]+\\}",
+  "retry_failed": false,
+  "get_flag_cmd": "curl -s http://10.0.0.1/get_flag",
+  "web_port": 8800,
+  "web_host": "0.0.0.0"
+}

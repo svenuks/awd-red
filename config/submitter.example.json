@@ -1,0 +1,14 @@
+{
+  "enabled": false,
+  "url": "http://10.0.0.1:8080/api/v1/flag/submit",
+  "method": "POST",
+  "format": "json",
+  "headers": {
+    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
+    "Content-Type": "application/json;charset=UTF-8",
+    "Authorization": "Bearer YOUR_SUBMIT_TOKEN_HERE"
+  },
+  "body_template": "{\"flag\":\"{raw_flag}\",\"token\":\"YOUR_SUBMIT_TOKEN_HERE\"}",
+  "success_keyword": "\"code\":\\s*(?:\"200\"|200|0)|success|成功|请勿重复",
+  "duplicate_keyword": "repeat|duplicate|already|重复|已提交"
+}

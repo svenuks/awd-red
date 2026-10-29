@@ -1,0 +1,27 @@
+# Python bytecode & cache
+__pycache__/
+*.py[cod]
+*$py.class
+
+# System files
+.DS_Store
+Thumbs.db
+
+# Runtime database & logs (preserve .gitkeep)
+*.db-shm
+*.db-wal
+data/*.db
+data/*.db-journal
+skills/awd-asset/data/*.db
+skills/awd-asset/data/*.db-journal
+logs/*.log
+skills/awd-asset/data/*.log
+*.pid
+skills/awd-asset/data/*.pid
+
+# Environments & editor
+.venv/
+venv/
+.env
+.idea/
+.vscode/
